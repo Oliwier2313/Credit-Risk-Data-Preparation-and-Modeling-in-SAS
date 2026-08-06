@@ -1,0 +1,395 @@
+libname moja '/home/u64366211/sasuser.v94/TEST1';
+data account;
+set moja.account;
+run;
+data card;
+set moja.card;
+run;
+data client;
+set moja.client;
+run;
+data disp;
+set moja.disp;
+run;
+data district;
+set moja.district;
+run;
+data loan;
+set moja.loan;
+run;
+data order;
+set moja.order;
+run;
+data trans;
+set moja.trans;
+run;
+
+data card_con;
+set card;
+	zmienna1=substr(issued, 1,6);
+	data1=input(zmienna1, yymmdd8.);
+	format data1 date9.;
+	drop zmienna1;
+run;
+data district_con;
+set district;
+rename
+		A1  = district_id
+    	A2  = district_name
+    	A3  = region
+        A4  = inhabitants
+        A5  = municipalities_lt_499
+        A6  = municipalities_500_1999
+        A7  = municipalities_2000_9999
+        A8  = municipalities_gt_10000
+        A9  = cities
+        A10 = urban_ratio
+        A11 = avg_salary
+        A12 = unemployment_rate_95
+        A13 = unemployment_rate_96
+        A14 = entrepreneurs_per_1000
+        A15 = crimes_95
+        A16 = crimes_96;
+run;
+
+
+proc sql;
+create table client_con as
+select client_id, birth_number, district_id,
+case
+	when input(substr(put(birth_number, z6.), 3,2), 2.) >50 then 'K'
+	else 'M'
+	end as Plec,
+case
+	when calculated Plec='K' then input(put(input(put(birth_number, z6.), 6.)-5000, z6.), yymmdd8.)
+	else input(put(birth_number, z6.), yymmdd8.)
+	end as date9 format=Date9.
+from client;
+quit;
+
+
+
+data loan_con;
+set loan;
+if status in('A', 'C') then default =0;
+if status in('B', 'D') then default=1;
+format date date9.;
+run;
+
+data trans_con;
+set trans;
+length trans_type $10;
+length operacja $25;
+format date date9.;
+if type='PRIJEM' then trans_type='wplata';
+else if type='VYDAJ' then trans_type='wyplata';
+else trans_type=.;
+
+if operation='VYBER KARTOU' then new_operation='wyplata_karta';
+else if operation='VKLAD' then new_operation='wplata_gotowkowa';
+else if operation='PREVOD Z UCTU' then new_operation='przelew_z_innego_banku';
+else if operation='VYBER' then new_operation='wyplata_gotowkowa';
+else if operation='PREVOD NA UCET' then new_operation='przelew_na_inny_rachunek';
+else new_operation=.;
+drop type operation;
+run;
+
+proc sql;
+create table account_con as
+select account_id, district_id, 
+	case 
+		when frequency="POPLATEK MESICNE" then "Miesieczny"
+		when frequency="POPLATEK TYDNE" then "Tygodniowy"
+		when frequency="POPLATEK PO OBRATU" then "Po_transkacji"
+		end as NewFrequency, 
+		date as acc_date format=date9.
+from account;
+quit;
+
+
+proc sql;
+    create table trans_Stats_Before_Loan as
+    select 
+        l.account_id,
+        l.date,
+        count(t.trans_id) as total_transactions_before,
+        sum(case when t.trans_type ='wplata' then 1 else 0 end) as inflow_count_before,
+        sum(case when t.trans_type ='wyplata' then 1 else 0 end) as outflow_count_before,
+        avg(case when t.trans_type ='wplata' then t.amount else . end) as avg_inflow_before,
+        avg(case when t.trans_type ='wyplata' then t.amount else . end) as avg_outflow_before,
+        min(t.balance) as min_balance_before,
+        max(t.balance) as max_balance_before,
+        (max(t.balance) - min(t.balance)) as balance_range_before
+from loan_con l
+    left join trans_con t on l.account_id = t.account_id 
+        and t.date <= l.date
+    group by l.account_id, l.date;
+quit;
+
+
+
+
+proc sql;
+    create table  trans_Last_90_Days as
+    select 
+        l.account_id,
+        l.date,
+        count(t.trans_id) as trans_last_90_days,
+        sum(case when t.trans_type ='wplata' then t.amount else 0 end) as inflow_last_90_days,
+        sum(case when t.trans_type ='wyplata' then t.amount else 0 end) as outflow_last_90_days,
+        avg(case when t.trans_type ='wplata' then t.amount else . end) as avg_inflow_last_90_days
+    from loan_con l
+    left join trans_con t on l.account_id = t.account_id 
+        and t.date between l.date - 90 and l.date
+    group by  l.account_id, l.date;
+quit;
+
+
+
+proc sql;
+    create table Balance_At_Loan as
+    select 
+        l.account_id,
+        l.date,
+        max(t.date) as last_trans_date,
+        max(t.balance) as balance_at_loan
+    from loan_con l
+    left join  trans_con t on l.account_id = t.account_id 
+        and t.date <= l.date
+    group by  l.account_id, l.date;
+quit;
+
+
+proc sql;
+    create table Transaction_Activity_Before as
+    select 
+        l.account_id,
+        l.date,
+        count(t.trans_id) / count(distinct t.date) as trans_per_day_before,
+        count(distinct t.date) as active_days_before,
+        min(t.date) as first_trans_date,
+        max(t.date) as last_trans_date_before
+    from loan_con l
+    left join trans_con t on l.account_id = t.account_id 
+        and t.date <= l.date
+    group by  l.account_id, l.date;
+quit;
+
+
+proc sql;
+    create table Dataset as
+    select 
+        l.loan_id,
+        l.date,
+        l.amount,
+        l.duration,
+        l.payments,
+        l.status,
+        l.default,
+        
+        c.client_id,
+        c.birth_number,
+        c.Plec,
+        c.date9,
+        c.district_id as client_district_id,
+        
+        a.account_id,
+        a.NewFrequency,
+        a.acc_date,
+        a.district_id as account_district_id,
+        
+        cr.card_id,
+        cr.type,
+        cr.issued,
+        cr.data1,
+     
+        tsbl.total_transactions_before,
+        tsbl.inflow_count_before,
+        tsbl.outflow_count_before,
+        tsbl.avg_inflow_before,
+        tsbl.avg_outflow_before,
+        tsbl.min_balance_before,
+        tsbl.max_balance_before,
+        tsbl.balance_range_before,
+        
+        tld.trans_last_90_days,
+        tld.inflow_last_90_days,
+        tld.outflow_last_90_days,
+        tld.avg_inflow_last_90_days,
+        
+        bal.balance_at_loan,
+        bal.last_trans_date,
+        
+        tab.trans_per_day_before,
+        tab.active_days_before,
+        tab.first_trans_date,
+        tab.last_trans_date_before,
+        
+        d1.district_name,
+        d1.region,
+        d1.inhabitants,
+        d1.avg_salary,
+        d1.unemployment_rate_96,
+        d1.urban_ratio,
+        d1.entrepreneurs_per_1000
+        
+        
+    from loan_con l
+    left join disp dp on l.account_id = dp.account_id and dp.type = 'OWNER'
+    
+    left join client_con c on dp.client_id = c.client_id
+    
+    left join account_con a on l.account_id = a.account_id
+    
+    left join card_con cr on dp.disp_id = cr.disp_id 
+        and cr.data1 <= l.date
+    
+    left join trans_Stats_Before_Loan tsbl 
+		on l.account_id = tsbl.account_id and l.date = tsbl.date
+    
+    left join  trans_Last_90_Days tld 
+        on l.account_id = tld.account_id and l.date = tld.date
+
+    left join Balance_At_Loan bal 
+		on l.account_id = bal.account_id and l.date = bal.date
+    
+    left join Transaction_Activity_Before tab 
+        on l.account_id = tab.account_id and l.date = tab.date
+    
+    left join district_con d1 on c.district_id = d1.district_id
+    
+    ;
+quit;
+
+
+
+data test12;
+set Dataset;
+run;
+
+
+
+
+
+data Model1;
+    set Dataset;
+
+    if date9>date then attr_age_days=.;
+    else attr_age_days= date-date9;
+    
+   	if date9>date then attr_age_years=.;
+    else attr_age_years = intck('year', date9, date);
+    
+    attr_plec = (plec = 'K');
+    
+    attr_account_age_days = date - acc_date;
+    
+    if NewFrequency = 'Miesieczny' then attr_account_freq = 1;    
+    else if NewFrequency = 'Tygodniowy' then attr_account_freq = 2; 
+    else if NewFrequency = 'Po_transkacji' then attr_account_freq = 3;
+    else attr_account_freq = 0;
+    
+    attr_has_card = (card_id NE .);
+    
+    if attr_has_card then do;
+        if type = 'classic' then attr_card_type = 1;
+        else if type = 'gold' then attr_card_type = 2;
+        else if type = 'junior' then attr_card_type = 3;
+        else attr_card_type = 0;
+    end;
+    else attr_card_type = 0;
+    
+    if attr_has_card then attr_card_age_days = date - data1;
+    else attr_card_age_days = 0;
+    
+    attr_card_before_loan = (attr_card_age_days > 0);
+    
+    if acc_date > date9 then 
+        attr_age_at_account_open = acc_date - date9;
+    else attr_age_at_account_open = .;
+    
+    attr_balance_at_loan = balance_at_loan;
+    
+    if avg_salary > 0 then 
+        attr_balance_to_salary = balance_at_loan / avg_salary;
+    else attr_balance_to_salary = .;
+    
+    attr_trans_last_90_days = trans_last_90_days;
+    
+    if trans_last_90_days > 0 then 
+        attr_avg_daily_inflow = inflow_last_90_days / 90;
+    else attr_avg_daily_inflow = 0;
+    
+    if outflow_last_90_days > 0 then 
+        attr_inflow_outflow_ratio = inflow_last_90_days / outflow_last_90_days;
+    else if inflow_last_90_days > 0 then 
+        attr_inflow_outflow_ratio = 999; /* Tylko wpływy */
+    else attr_inflow_outflow_ratio = 0;
+    
+    attr_balance_range = balance_range_before;
+    
+    attr_trans_per_day = trans_per_day_before;
+    
+    if attr_account_age_days > 0 then 
+        attr_trans_per_account_day = total_transactions_before / attr_account_age_days;
+    else attr_trans_per_account_day = .;
+    
+    attr_min_balance_ever = min_balance_before;
+    
+    attr_max_balance_ever = max_balance_before;
+    
+	if avg_salary > 0 then 
+        attr_loan_to_salary = amount / avg_salary;
+    else attr_loan_to_salary = .;
+    
+if avg_salary > 0 then 
+        attr_monthly_burden = payments / avg_salary;
+    else attr_monthly_burden = .;
+    
+    attr_loan_duration = duration;
+    
+    if balance_at_loan > 0 then 
+        attr_payment_to_balance = payments / balance_at_loan;
+    else attr_payment_to_balance = .;
+    
+    attr_loan_month = month(date);
+    
+    attr_loan_quarter = qtr(date);
+    attr_summer_quarter = (attr_loan_quarter IN (2, 3));
+    
+    attr_age_ratio = attr_age_years / 50;
+    
+    attr_account_over_2years = (attr_account_age_days > 730);
+    
+    if outflow_count_before > 0 then 
+        attr_total_inflow_outflow_ratio = inflow_count_before / outflow_count_before;
+    else if inflow_count_before > 0 then 
+        attr_total_inflow_outflow_ratio = 999;
+    else attr_total_inflow_outflow_ratio = 0;
+    
+   	attr_total_transactions_before= total_transactions_before;
+   	
+   	attr_avg_inflow_before=avg_inflow_before;
+    
+    keep 
+        loan_id account_id client_id loan_date default
+        attr_: ;
+        
+    format attr_: BEST12.;
+run;
+
+data Model2;
+set Model1;
+run;
+
+data '/home/u64366211/sasuser.v94/TEST1/Model2';
+set Model2;
+run;
+
+
+proc contents data=Model1 varnum;
+    title "Lista wszystkich atrybutów";
+run;
+
+
+
