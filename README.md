@@ -274,8 +274,6 @@ Wysoka wartość specificity oznacza, że modele bardzo dobrze rozpoznawały kla
 
 Jednocześnie niska wartość sensitivity pokazuje, że modele miały trudność z wykrywaniem przypadków klasy dodatniej. Najlepsze warianty wykrywały jedynie `37,5%` obserwacji dodatnich.
 
-images/roc_curve.png
-
 ## Interpretacja wyników
 
 Otrzymane wyniki nie wskazują na model gotowy do rzeczywistego zastosowania. Szczególnie istotnym problemem jest niska czułość dla klasy dodatniej.
@@ -328,10 +326,3 @@ Projekt można rozwinąć poprzez:
 - zastosowanie dodatkowego zbioru testowego,
 - sprawdzenie stabilności modelu w czasie.
 
-## Autor
-
-**Oliwier Laskowski**
-
-- GitHub: [TUTAJ WSTAW LINK DO PROFILU]
-- LinkedIn: [TUTAJ WSTAW LINK DO LINKEDIN]
-- CV: [TUTAJ WSTAW LINK DO CV]
